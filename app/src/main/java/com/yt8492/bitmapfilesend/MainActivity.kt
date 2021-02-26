@@ -4,13 +4,12 @@ import android.Manifest
 import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
-import android.content.BroadcastReceiver
-import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.util.Log
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
@@ -32,24 +31,10 @@ class MainActivity : AppCompatActivity() {
         }
     })
 
-    private val receiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent) {
-            when (intent.action) {
-                BluetoothDevice.ACTION_FOUND -> {
-                    val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
-                    if (device?.bondState == BluetoothDevice.BOND_BONDED) {
-                        deviceListAdapter.addDevices(listOf(device))
-                    }
-                }
-                BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
-                    bluetoothAdapter.cancelDiscovery()
-                    binding.refreshLayout.isRefreshing = false
-                }
-            }
-        }
+    private val bluetoothAdapter by lazy {
+        BluetoothAdapter.getDefaultAdapter()
     }
-    
-    private val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
+
     private lateinit var binding: ActivityMainBinding
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -64,16 +49,27 @@ class MainActivity : AppCompatActivity() {
             layoutManager = linearLayoutManager
         }
         binding.refreshLayout.setOnRefreshListener {
-            if (!bluetoothAdapter.isDiscovering) {
-                bluetoothAdapter.startDiscovery()
-            }
+            findDevices()
+            binding.refreshLayout.isRefreshing = false
         }
-        listOf(Manifest.permission.BLUETOOTH, Manifest.permission.BLUETOOTH_ADMIN)
+
+        packageManager.takeIf { it.missingSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE) }?.also {
+            Toast.makeText(this, "ble not supported", Toast.LENGTH_SHORT).show()
+            finish()
+        }
+
+        listOf(
+            Manifest.permission.BLUETOOTH,
+            Manifest.permission.BLUETOOTH_ADMIN,
+        )
             .filterNot {
                 ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
             }
             .toTypedArray()
             .let {
+                if (it.isEmpty()) {
+                    return@let
+                }
                 val launcher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grantedMap ->
                     val isAllGranted = grantedMap.all { e ->
                         e.value
@@ -99,7 +95,7 @@ class MainActivity : AppCompatActivity() {
                 .create()
                 .show()
         }
-        if (!bluetoothAdapter.isEnabled) {
+        if (bluetoothAdapter?.isEnabled == false) {
             val enableIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
             val launcher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
                 if (it.resultCode != Activity.RESULT_OK) {
@@ -114,23 +110,15 @@ class MainActivity : AppCompatActivity() {
             }
             launcher.launch(enableIntent)
         }
-
-        val foundFilter = IntentFilter(BluetoothDevice.ACTION_FOUND)
-        registerReceiver(receiver, foundFilter)
-        val discoveryFinishedFilter = IntentFilter(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
-        registerReceiver(receiver, discoveryFinishedFilter)
-
-        val devices = bluetoothAdapter.bondedDevices.toList()
-        deviceListAdapter.addDevices(devices)
-        bluetoothAdapter.startDiscovery()
+        findDevices()
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        if (bluetoothAdapter?.isDiscovering == true) {
-            bluetoothAdapter.cancelDiscovery()
-            binding.refreshLayout.isRefreshing = false
-        }
-        unregisterReceiver(receiver)
+    private fun findDevices() {
+        val devices = bluetoothAdapter.bondedDevices.toList()
+        Log.d("hogehgoe", "devices:\n${devices.joinToString("\n") { "name: ${it.name}, state: ${it.bondState}" }}")
+        deviceListAdapter.clear()
+        deviceListAdapter.addDevices(devices)
     }
 }
+
+private fun PackageManager.missingSystemFeature(name: String): Boolean = !hasSystemFeature(name)

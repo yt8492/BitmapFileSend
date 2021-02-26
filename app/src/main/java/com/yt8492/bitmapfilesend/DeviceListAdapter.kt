@@ -37,8 +37,18 @@ class DeviceListAdapter(
         holder.bind(getItem(position), listener)
     }
 
+    fun addDevice(device: BluetoothDevice) {
+        devices.add(device)
+        submitList(devices)
+    }
+
     fun addDevices(devices: List<BluetoothDevice>) {
         this.devices.addAll(devices)
         submitList(this.devices)
+    }
+
+    fun clear() {
+        devices.clear()
+        submitList(devices)
     }
 }
