@@ -25,7 +25,7 @@ class MainActivity : AppCompatActivity() {
         override fun onClick(device: BluetoothDevice?) {
             device ?: return
             val intent = Intent(this@MainActivity, SendActivity::class.java).apply {
-                putExtra(SendActivity.KEY_DEVICE, device)
+                putExtra(SendActivity.KEY_ADDRESS, device.address)
             }
             startActivity(intent)
         }

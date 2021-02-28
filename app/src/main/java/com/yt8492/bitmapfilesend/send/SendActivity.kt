@@ -1,8 +1,14 @@
 package com.yt8492.bitmapfilesend.send
 
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.graphics.Matrix
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.util.Log
 import androidx.appcompat.app.AlertDialog
 import androidx.databinding.DataBindingUtil
 import androidx.lifecycle.lifecycleScope
@@ -12,6 +18,8 @@ import com.yt8492.bitmapfilesend.Constants
 import com.yt8492.bitmapfilesend.R
 import com.yt8492.bitmapfilesend.databinding.ActivitySendBinding
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.nio.ByteBuffer
@@ -20,8 +28,14 @@ class SendActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySendBinding
 
+    private val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
+
     private val device by lazy {
-        intent.getParcelableExtra<BluetoothDevice>(KEY_DEVICE)
+        bluetoothAdapter.getRemoteDevice(address)
+    }
+
+    private val address by lazy {
+        intent.getStringExtra(KEY_ADDRESS)
     }
 
     private val sendingDialog by lazy {
@@ -49,28 +63,64 @@ class SendActivity : AppCompatActivity() {
             lifecycleScope.launchWhenStarted {
                 sendingDialog.show()
                 withContext(Dispatchers.IO) {
-                    device.createRfcommSocketToServiceRecord(Constants.APP_UUID).use { socket ->
-                        try {
-                            if (socket.isConnected) return@use
-                            socket.connect()
-                            val outputStream = socket.outputStream
-                            val inputStream = assets.open(fileName)
-                            val size = inputStream.available()
-                            outputStream.write(ByteBuffer.allocate(4).putInt(size).array())
-                            for (i in 0 until size) {
-                                outputStream.write(inputStream.read())
+                    val socket = device.createRfcommSocketToServiceRecord(Constants.APP_UUID)
+                    try {
+                        if (socket.isConnected) return@withContext
+                        socket.connect()
+                        val outputStream = socket.outputStream
+                        val logStream = socket.inputStream
+                        val inputStream = assets.open(fileName)
+                        val bitmap = BitmapFactory.decodeStream(inputStream)
+                        val dataBuf = ByteArray(bitmap.width * bitmap.height * 3)
+                        var i = 0
+                        for (y in 0 until bitmap.height) {
+                            for (x in 0 until bitmap.width) {
+                                val pixel = bitmap.getPixel(x, y)
+                                val r = Color.red(pixel)
+                                val g = Color.green(pixel)
+                                val b = Color.blue(pixel)
+                                dataBuf[i] = r.toByte()
+                                i++
+                                dataBuf[i] = g.toByte()
+                                i++
+                                dataBuf[i] = b.toByte()
+                                i++
                             }
-                        } catch (e: IOException) {
-                            withContext(Dispatchers.Main.immediate) {
-                                AlertDialog.Builder(this@SendActivity)
-                                    .setTitle("エラー")
-                                    .setMessage(e.message)
-                                    .setPositiveButton("OK") { d, _ ->
-                                        d.dismiss()
+                        }
+                        var offset = 0
+                        outputStream.write(dataBuf, offset, 32)
+                        launch {
+                            while (socket.isConnected) {
+                                val tmp = logStream.read()
+                                if (tmp != 'k'.toInt()) {
+                                    continue
+                                }
+                                Log.d("hogehoge", "tmp: $tmp")
+                                offset += 32
+                                if (offset < dataBuf.size) {
+                                    val len = if (offset + 32 < dataBuf.size) {
+                                        32
+                                    } else {
+                                        dataBuf.size - offset
                                     }
-                                    .create()
-                                    .show()
+                                    outputStream.write(dataBuf, offset, len)
+                                    Log.d("hogehoge", "send: ${offset + len}")
+                                    if (offset + len >= dataBuf.size) {
+                                        break
+                                    }
+                                }
                             }
+                        }
+                    } catch (e: IOException) {
+                        withContext(Dispatchers.Main.immediate) {
+                            AlertDialog.Builder(this@SendActivity)
+                                .setTitle("エラー")
+                                .setMessage(e.message)
+                                .setPositiveButton("OK") { d, _ ->
+                                    d.dismiss()
+                                }
+                                .create()
+                                .show()
                         }
                     }
                 }
@@ -89,11 +139,11 @@ class SendActivity : AppCompatActivity() {
             val itemDecoration = DividerItemDecoration(this@SendActivity, linearLayoutManager.orientation)
             addItemDecoration(itemDecoration)
         }
-        val files = assets.list("")?.filter { it.endsWith(".bmp") } ?: listOf()
+        val files = assets.list("")?.filter { it.endsWith(".bmp") || it.endsWith(".png") } ?: listOf()
         imageListAdapter.addFiles(files)
     }
 
     companion object {
-        const val KEY_DEVICE = "device"
+        const val KEY_ADDRESS = "address"
     }
 }
