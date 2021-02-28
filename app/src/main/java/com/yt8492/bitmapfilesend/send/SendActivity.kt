@@ -89,25 +89,23 @@ class SendActivity : AppCompatActivity() {
                         }
                         var offset = 0
                         outputStream.write(dataBuf, offset, 32)
-                        launch {
-                            while (socket.isConnected) {
-                                val tmp = logStream.read()
-                                if (tmp != 'k'.toInt()) {
-                                    continue
+                        while (socket.isConnected) {
+                            val tmp = logStream.read()
+                            if (tmp != 'k'.toInt()) {
+                                continue
+                            }
+                            Log.d("hogehoge", "tmp: $tmp")
+                            offset += 32
+                            if (offset < dataBuf.size) {
+                                val len = if (offset + 32 < dataBuf.size) {
+                                    32
+                                } else {
+                                    dataBuf.size - offset
                                 }
-                                Log.d("hogehoge", "tmp: $tmp")
-                                offset += 32
-                                if (offset < dataBuf.size) {
-                                    val len = if (offset + 32 < dataBuf.size) {
-                                        32
-                                    } else {
-                                        dataBuf.size - offset
-                                    }
-                                    outputStream.write(dataBuf, offset, len)
-                                    Log.d("hogehoge", "send: ${offset + len}")
-                                    if (offset + len >= dataBuf.size) {
-                                        break
-                                    }
+                                outputStream.write(dataBuf, offset, len)
+                                Log.d("hogehoge", "send: ${offset + len}")
+                                if (offset + len >= dataBuf.size) {
+                                    break
                                 }
                             }
                         }
@@ -122,6 +120,8 @@ class SendActivity : AppCompatActivity() {
                                 .create()
                                 .show()
                         }
+                    } finally {
+                        socket.close()
                     }
                 }
                 sendingDialog.dismiss()
